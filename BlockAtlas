@@ -1,0 +1,107 @@
+import requests
+import pandas as pd
+import matplotlib.pyplot as plt
+
+class BlockAtlas:
+    def __init__(self, api_key: str):
+        self.api_url = 'https://api.etherscan.io/api'
+        self.api_key = api_key
+
+    def get_block_info(self, block_number: int) -> dict:
+        """Fetches information about a specific block."""
+        params = {
+            'module': 'proxy',
+            'action': 'eth_getBlockByNumber',
+            'tag': hex(block_number),
+            'boolean': 'true',
+            'apikey': self.api_key
+        }
+        response = requests.get(self.api_url, params=params)
+        return response.json().get('result', {})
+
+    def get_block_transactions(self, block_number: int) -> pd.DataFrame:
+        """Fetches transactions for a specific block."""
+        block_info = self.get_block_info(block_number)
+        transactions = block_info.get('transactions', [])
+        tx_data = []
+        for tx in transactions:
+            tx_data.append({
+                'hash': tx['hash'],
+                'from': tx['from'],
+                'to': tx['to'],
+                'value': int(tx['value'], 16),  # Convert from hexadecimal to integer
+                'gas': int(tx['gas'], 16),
+                'gas_price': int(tx['gasPrice'], 16)
+            })
+        return pd.DataFrame(tx_data)
+
+    def get_network_stats(self) -> dict:
+        """Fetches network statistics like latest block and gas prices."""
+        params = {
+            'module': 'stats',
+            'action': 'eth_blockNumber',
+            'apikey': self.api_key
+        }
+        latest_block = requests.get(self.api_url, params=params).json().get('result', '0x0')
+        latest_block = int(latest_block, 16)
+        
+        params = {
+            'module': 'gastracker',
+            'action': 'gasoracle',
+            'apikey': self.api_key
+        }
+        gas_price = requests.get(self.api_url, params=params).json().get('result', {})
+        
+        return {
+            'latest_block': latest_block,
+            'gas_price': gas_price
+        }
+
+    def plot_block_data(self, block_number: int):
+        """Plots transaction data for a specific block."""
+        df = self.get_block_transactions(block_number)
+        if df.empty:
+            print("No transaction data found.")
+            return
+
+        df['value'] = df['value'] / 10**18  # Convert wei to ether
+        df['gas'] = df['gas'] * df['gas_price'] / 10**18  # Convert gas used to ether
+        
+        fig, ax1 = plt.subplots(figsize=(12, 6))
+
+        color = 'tab:blue'
+        ax1.set_xlabel('Transaction Hash')
+        ax1.set_ylabel('Transaction Value (ETH)', color=color)
+        ax1.bar(df['hash'].head(10), df['value'].head(10), color=color)
+        ax1.tick_params(axis='y', labelcolor=color)
+
+        ax2 = ax1.twinx()  
+        color = 'tab:red'
+        ax2.set_ylabel('Gas Cost (ETH)', color=color)  
+        ax2.plot(df['hash'].head(10), df['gas'].head(10), color=color)
+        ax2.tick_params(axis='y', labelcolor=color)
+
+        plt.title(f'Block {block_number} Transactions')
+        plt.xticks(rotation=90)
+        plt.grid(True)
+        plt.show()
+
+# Example Usage
+if __name__ == "__main__":
+    ETHERSCAN_API_KEY = 'YOUR_ETHERSCAN_API_KEY'  # Replace with your Etherscan API key
+
+    block_atlas = BlockAtlas(api_key=ETHERSCAN_API_KEY)
+
+    # Fetch and Display Block Information
+    block_number = 17000000  # Replace with the block number you want to explore
+    block_info = block_atlas.get_block_info(block_number)
+    print(f"Block {block_number} Information:")
+    print(block_info)
+
+    # Fetch and Display Network Statistics
+    network_stats = block_atlas.get_network_stats()
+    print("Network Statistics:")
+    print(network_stats)
+
+    # Plot Block Transaction Data
+    block_atlas.plot_block_data(block_number=block_number)
